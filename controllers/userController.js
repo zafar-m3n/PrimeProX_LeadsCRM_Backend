@@ -58,7 +58,12 @@ const getUsers = async (req, res) => {
     const offset = (page - 1) * limit;
 
     const { rows, count } = await User.findAndCountAll({
-      where: { is_active: true },
+      where: {
+        is_active: true,
+        id: {
+          [require("sequelize").Op.ne]: 1,
+        },
+      },
       include: [{ model: Role, attributes: ["id", "value", "label"] }],
       order: [["id", "ASC"]],
       offset,
@@ -86,6 +91,10 @@ const getUserById = async (req, res) => {
   try {
     const { id } = req.params;
 
+    if (parseInt(id, 10) === 1) {
+      return resError(res, "User not found", 404);
+    }
+
     const user = await User.findByPk(id, {
       include: [{ model: Role, attributes: ["id", "value", "label"] }],
     });
@@ -102,15 +111,41 @@ const getUserById = async (req, res) => {
 const updateUser = async (req, res) => {
   try {
     const { id } = req.params;
-    const { full_name, email, role_id, is_active } = req.body;
+    const { full_name, email, password, role_id, is_active } = req.body;
 
     const user = await User.findByPk(id);
     if (!user) return resError(res, "User not found", 404);
 
-    if (full_name !== undefined) user.full_name = full_name;
-    if (email !== undefined) user.email = email;
-    if (role_id !== undefined) user.role_id = role_id;
-    if (is_active !== undefined) user.is_active = is_active;
+    if (full_name !== undefined) {
+      user.full_name = full_name;
+    }
+
+    if (email !== undefined) {
+      const existing = await User.findOne({
+        where: { email },
+      });
+
+      if (existing && existing.id !== user.id) {
+        return resError(res, "Email already in use", 400);
+      }
+
+      user.email = email;
+    }
+
+    if (role_id !== undefined) {
+      const role = await Role.findByPk(role_id);
+      if (!role) return resError(res, "Invalid role_id", 400);
+
+      user.role_id = role_id;
+    }
+
+    if (password !== undefined && password !== "") {
+      user.password_hash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+    }
+
+    if (is_active !== undefined) {
+      user.is_active = is_active;
+    }
 
     await user.save();
 
