@@ -18,19 +18,4 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           port: ${{ secrets.EC2_PORT }}
           script: |
-            set -e
-
-            cd ~/PrimeProX_LeadsCRM_Backend
-
-            echo "Pulling latest code from main..."
-            git fetch origin main
-            git reset --hard origin/main
-
-            echo "Installing dependencies..."
-            npm install
-
-            echo "Restarting PM2 app..."
-            pm2 reload leadscrm-backend || pm2 start index.js -i max --name leadscrm-backend
-
-            echo "Saving PM2 process list..."
-            pm2 save
+            ~/deploy_leadscrm_backend.sh
