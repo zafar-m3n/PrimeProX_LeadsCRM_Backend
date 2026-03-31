@@ -3,6 +3,15 @@ const { Lead, LeadStatus, LeadSource, User, LeadAssignment, LeadNote } = require
 const { sequelize } = require("../config/database");
 const { resSuccess, resError } = require("../utils/responseUtil");
 
+const ROLE_IDS = {
+  admin: 1,
+  manager: 2,
+  sales_rep: 3,
+};
+
+const UNASSIGNED_ROLE_IDS = [ROLE_IDS.admin, ROLE_IDS.manager];
+const ASSIGNED_ROLE_IDS = [ROLE_IDS.sales_rep];
+
 const LATEST_ASSIGNMENT_IDS = literal(`(SELECT MAX(id) FROM lead_assignments GROUP BY lead_id)`);
 
 const buildLatestAssignmentInclude = (
@@ -10,6 +19,7 @@ const buildLatestAssignmentInclude = (
   assignedFrom = null,
   assignedTo = null,
   forceRequired = false,
+  assignmentState = null,
 ) => {
   const where = { id: { [Op.in]: LATEST_ASSIGNMENT_IDS } };
 
@@ -23,16 +33,32 @@ const buildLatestAssignmentInclude = (
     if (assignedTo) where.assigned_at[Op.lte] = assignedTo;
   }
 
+  const assigneeWhere = {};
+
+  if (assignmentState === "assigned") {
+    assigneeWhere.role_id = { [Op.in]: ASSIGNED_ROLE_IDS };
+  }
+
+  if (assignmentState === "unassigned") {
+    assigneeWhere.role_id = { [Op.in]: UNASSIGNED_ROLE_IDS };
+  }
+
   return {
     model: LeadAssignment,
     as: "LeadAssignments",
-    required: forceRequired || (Array.isArray(assigneeIds) && assigneeIds.length > 0) || !!(assignedFrom || assignedTo),
+    required:
+      forceRequired ||
+      (Array.isArray(assigneeIds) && assigneeIds.length > 0) ||
+      !!(assignedFrom || assignedTo) ||
+      !!assignmentState,
     where,
     include: [
       {
         model: User,
         as: "assignee",
         attributes: ["id", "full_name", "email", "role_id"],
+        required: !!assignmentState,
+        ...(Object.keys(assigneeWhere).length ? { where: assigneeWhere } : {}),
       },
     ],
   };
@@ -104,6 +130,7 @@ const getLeads = async (req, res) => {
       status_ids,
       source_ids,
       assignee_ids,
+      assignment_state,
       orderBy,
       orderDir,
       search,
@@ -184,6 +211,9 @@ const getLeads = async (req, res) => {
           .filter(Boolean)
       : [];
 
+    const normalizedAssignmentState =
+      assignment_state === "assigned" || assignment_state === "unassigned" ? assignment_state : null;
+
     let order = [["id", "ASC"]];
     if (orderBy) {
       const dir = (orderDir || "ASC").toUpperCase() === "DESC" ? "DESC" : "ASC";
@@ -214,12 +244,13 @@ const getLeads = async (req, res) => {
 
     const latestInclude =
       role === "sales_rep"
-        ? buildLatestAssignmentInclude([userId], assignedFrom, assignedTo, true)
+        ? buildLatestAssignmentInclude([userId], assignedFrom, assignedTo, true, "assigned")
         : buildLatestAssignmentInclude(
-            parsedAssigneeIds,
+            normalizedAssignmentState === "unassigned" ? [] : parsedAssigneeIds,
             assignedFrom,
             assignedTo,
-            needDateFilter || parsedAssigneeIds.length > 0,
+            needDateFilter || parsedAssigneeIds.length > 0 || !!normalizedAssignmentState,
+            normalizedAssignmentState,
           );
 
     const { count, rows: leads } = await Lead.findAndCountAll({
