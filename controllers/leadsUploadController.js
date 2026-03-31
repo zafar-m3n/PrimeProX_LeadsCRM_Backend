@@ -24,7 +24,7 @@ const normalizePhoneDigits = (p) => (p ? String(p) : "").replace(/\D+/g, "").sli
 const importLeads = async (req, res) => {
   let t;
   try {
-    const { leads } = req.body;
+    const { leads, fallback_source, is_new_source } = req.body;
     if (!Array.isArray(leads) || leads.length === 0) {
       return res.status(400).json({ success: false, error: "No leads provided." });
     }
@@ -37,7 +37,10 @@ const importLeads = async (req, res) => {
       const src = sanitizeStr(r?.source);
       if (src) incomingSourceLabels.add(src);
     }
-    incomingSourceLabels.add("facebook");
+
+    if (fallback_source) {
+      incomingSourceLabels.add(sanitizeStr(fallback_source));
+    }
 
     if (incomingSourceLabels.size) {
       const candidateRows = Array.from(incomingSourceLabels)
@@ -81,7 +84,12 @@ const importLeads = async (req, res) => {
       if (s.label) sourceMap.set(sanitizeStr(s.label).toLowerCase(), s);
       if (s.value) sourceMap.set(sanitizeStr(s.value).toLowerCase(), s);
     }
-    const defaultSource = sourceMap.get("facebook") || null;
+    let defaultSource = null;
+
+    if (fallback_source) {
+      const key = sanitizeStr(fallback_source).toLowerCase();
+      defaultSource = sourceMap.get(key) || null;
+    }
 
     const prepared = [];
     const notes = [];
@@ -121,8 +129,14 @@ const importLeads = async (req, res) => {
 
       let src = null;
       const rSource = sanitizeStr(r.source).toLowerCase();
-      if (rSource) src = sourceMap.get(rSource);
-      if (!src) src = defaultSource;
+
+      if (rSource) {
+        src = sourceMap.get(rSource);
+      }
+
+      if (!src && defaultSource) {
+        src = defaultSource;
+      }
 
       const noteBody = sanitizeStr(r.notes);
 
@@ -274,8 +288,8 @@ const getTemplateSchema = async (req, res) => {
         "notes",
       ],
       defaults: {
-        status: "new",
-        source: "facebook",
+        status: "New",
+        source: "Choose Fallback Source",
       },
       duplicate_check: "email_or_phone (phone compared by digits-only)",
       notes: [
