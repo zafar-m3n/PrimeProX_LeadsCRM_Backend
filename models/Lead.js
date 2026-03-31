@@ -34,6 +34,10 @@ const Lead = sequelize.define(
       type: DataTypes.STRING(80),
       allowNull: true,
     },
+    language: {
+      type: DataTypes.ENUM("English", "Hindi", "Tamil"),
+      allowNull: true,
+    },
     status_id: {
       type: DataTypes.INTEGER,
       allowNull: false,

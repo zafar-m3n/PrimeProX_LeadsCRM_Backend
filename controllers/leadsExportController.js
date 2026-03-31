@@ -3,7 +3,7 @@ const { Lead, LeadStatus, LeadSource } = require("../models");
 const { resSuccess, resError } = require("../utils/responseUtil");
 
 function buildExportQueryParts(req) {
-  const { status_ids, source_ids } =
+  const { status_ids, source_ids, languages } =
     req.body?.filters && typeof req.body.filters === "object" ? req.body.filters : req.body || {};
 
   const where = {};
@@ -22,6 +22,14 @@ function buildExportQueryParts(req) {
       .map((s) => s.trim())
       .filter(Boolean);
     if (ids.length) where.source_id = { [Op.in]: ids };
+  }
+
+  if (languages) {
+    const langs = String(languages)
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (langs.length) where.language = { [Op.in]: langs };
   }
 
   const include = [
@@ -46,7 +54,9 @@ function csvEscape(value) {
 
 function writeCsvHeader(res) {
   const header =
-    ["first_name", "last_name", "company", "email", "phone", "country", "status", "source"].join(CSV_DELIM) + CRLF;
+    ["first_name", "last_name", "company", "email", "phone", "country", "language", "status", "source"].join(
+      CSV_DELIM,
+    ) + CRLF;
 
   res.write("\uFEFF" + header);
 }
@@ -59,6 +69,7 @@ function leadToCsvRow(l) {
     csvEscape(l.email || ""),
     csvEscape(l.phone || ""),
     csvEscape(l.country || ""),
+    csvEscape(l.language || ""),
     csvEscape(l?.LeadStatus?.label || ""),
     csvEscape(l?.LeadSource?.label || ""),
   ];
@@ -118,7 +129,18 @@ const exportDownload = async (req, res) => {
         include,
         limit: PAGE_SIZE,
         offset,
-        attributes: ["id", "first_name", "last_name", "company", "email", "phone", "country", "status_id", "source_id"],
+        attributes: [
+          "id",
+          "first_name",
+          "last_name",
+          "company",
+          "email",
+          "phone",
+          "country",
+          "language",
+          "status_id",
+          "source_id",
+        ],
       });
 
       if (!rows.length) break;

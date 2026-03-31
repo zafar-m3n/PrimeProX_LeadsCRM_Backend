@@ -41,7 +41,7 @@ const buildLatestAssignmentInclude = (
 const createLead = async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    const { first_name, last_name, company, email, phone, country, status_id, source_id, notes } = req.body;
+    const { first_name, last_name, company, email, phone, country, language, status_id, source_id, notes } = req.body;
 
     if (!status_id) {
       await t.rollback();
@@ -56,6 +56,7 @@ const createLead = async (req, res) => {
         email,
         phone,
         country,
+        language,
         status_id,
         source_id,
         created_by: req.user.id,
@@ -106,6 +107,7 @@ const getLeads = async (req, res) => {
       orderBy,
       orderDir,
       search,
+      languages,
       page = 1,
       limit = 10,
       assigned_from,
@@ -190,6 +192,17 @@ const getLeads = async (req, res) => {
         order = [[{ model: LeadAssignment, as: "LeadAssignments" }, "assigned_at", dir]];
       } else {
         order = [[orderBy, dir]];
+      }
+    }
+
+    if (languages) {
+      const langs = languages
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      if (langs.length > 0) {
+        where.language = { [Op.in]: langs };
       }
     }
 
@@ -303,7 +316,7 @@ const updateLead = async (req, res) => {
       }
     }
 
-    const { first_name, last_name, company, email, phone, country, status_id, source_id, notes } = req.body;
+    const { first_name, last_name, company, email, phone, country, language, status_id, source_id, notes } = req.body;
 
     if (first_name !== undefined) lead.first_name = first_name;
     if (last_name !== undefined) lead.last_name = last_name;
@@ -311,6 +324,7 @@ const updateLead = async (req, res) => {
     if (email !== undefined) lead.email = email;
     if (phone !== undefined) lead.phone = phone;
     if (country !== undefined) lead.country = country;
+    if (language !== undefined) lead.language = language;
     if (status_id !== undefined) lead.status_id = status_id;
     if (source_id !== undefined) lead.source_id = source_id;
 
