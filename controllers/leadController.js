@@ -21,10 +21,17 @@ const buildLatestAssignmentInclude = (
   forceRequired = false,
   assignmentState = null,
 ) => {
-  const where = { id: { [Op.in]: LATEST_ASSIGNMENT_IDS } };
+  const where = {
+    id: {
+      [Op.in]: LATEST_ASSIGNMENT_IDS,
+    },
+  };
 
   if (Array.isArray(assigneeIds) && assigneeIds.length > 0) {
-    where.assignee_id = { [Op.in]: assigneeIds.map(Number).filter(Boolean) };
+    const parsedIds = assigneeIds.map(Number).filter(Boolean);
+    if (parsedIds.length > 0) {
+      where.assignee_id = { [Op.in]: parsedIds };
+    }
   }
 
   if (assignedFrom || assignedTo) {
@@ -37,15 +44,12 @@ const buildLatestAssignmentInclude = (
 
   if (assignmentState === "assigned") {
     assigneeWhere.role_id = { [Op.in]: ASSIGNED_ROLE_IDS };
-  }
-
-  if (assignmentState === "unassigned") {
+  } else if (assignmentState === "unassigned") {
     assigneeWhere.role_id = { [Op.in]: UNASSIGNED_ROLE_IDS };
   }
 
   return {
     model: LeadAssignment,
-    as: "LeadAssignments",
     required:
       forceRequired ||
       (Array.isArray(assigneeIds) && assigneeIds.length > 0) ||
@@ -58,7 +62,7 @@ const buildLatestAssignmentInclude = (
         as: "assignee",
         attributes: ["id", "full_name", "email", "role_id"],
         required: !!assignmentState,
-        ...(Object.keys(assigneeWhere).length ? { where: assigneeWhere } : {}),
+        ...(Object.keys(assigneeWhere).length > 0 ? { where: assigneeWhere } : {}),
       },
     ],
   };
@@ -144,7 +148,7 @@ const getLeads = async (req, res) => {
     const where = {};
 
     if (status_ids) {
-      const ids = status_ids
+      const ids = String(status_ids)
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean)
@@ -157,7 +161,7 @@ const getLeads = async (req, res) => {
     }
 
     if (source_ids) {
-      const ids = source_ids
+      const ids = String(source_ids)
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean)
@@ -169,13 +173,26 @@ const getLeads = async (req, res) => {
       }
     }
 
+    if (languages) {
+      const langs = String(languages)
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      if (langs.length > 0) {
+        where.language = { [Op.in]: langs };
+      }
+    }
+
     if (search) {
-      const digitsOnly = String(search).replace(/\D+/g, "");
+      const term = String(search).trim();
+      const digitsOnly = term.replace(/\D+/g, "");
+
       const orClauses = [
-        { first_name: { [Op.like]: `%${search}%` } },
-        { last_name: { [Op.like]: `%${search}%` } },
-        { email: { [Op.like]: `%${search}%` } },
-        { phone: { [Op.like]: `%${search}%` } },
+        { first_name: { [Op.like]: `%${term}%` } },
+        { last_name: { [Op.like]: `%${term}%` } },
+        { email: { [Op.like]: `%${term}%` } },
+        { phone: { [Op.like]: `%${term}%` } },
       ];
 
       if (digitsOnly.length >= 3 && digitsOnly.length <= 5) {
@@ -190,20 +207,20 @@ const getLeads = async (req, res) => {
 
     if (assigned_from) {
       const d = new Date(assigned_from);
-      if (!isNaN(d)) {
+      if (!isNaN(d.getTime())) {
         assignedFrom = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0));
       }
     }
 
     if (assigned_to) {
       const d = new Date(assigned_to);
-      if (!isNaN(d)) {
+      if (!isNaN(d.getTime())) {
         assignedTo = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 23, 59, 59, 999));
       }
     }
 
     const parsedAssigneeIds = assignee_ids
-      ? assignee_ids
+      ? String(assignee_ids)
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean)
@@ -214,30 +231,8 @@ const getLeads = async (req, res) => {
     const normalizedAssignmentState =
       assignment_state === "assigned" || assignment_state === "unassigned" ? assignment_state : null;
 
-    let order = [["id", "ASC"]];
-    if (orderBy) {
-      const dir = (orderDir || "ASC").toUpperCase() === "DESC" ? "DESC" : "ASC";
-
-      if (orderBy === "assigned_at") {
-        order = [[{ model: LeadAssignment, as: "LeadAssignments" }, "assigned_at", dir]];
-      } else {
-        order = [[orderBy, dir]];
-      }
-    }
-
-    if (languages) {
-      const langs = languages
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-
-      if (langs.length > 0) {
-        where.language = { [Op.in]: langs };
-      }
-    }
-
-    const pageNum = parseInt(page, 10);
-    const pageLimit = parseInt(limit, 10);
+    const pageNum = Math.max(parseInt(page, 10) || 1, 1);
+    const pageLimit = Math.max(parseInt(limit, 10) || 10, 1);
     const offset = (pageNum - 1) * pageLimit;
 
     const needDateFilter = !!(assignedFrom || assignedTo);
@@ -253,6 +248,18 @@ const getLeads = async (req, res) => {
             normalizedAssignmentState,
           );
 
+    let order = [["id", "ASC"]];
+
+    if (orderBy) {
+      const dir = String(orderDir || "ASC").toUpperCase() === "DESC" ? "DESC" : "ASC";
+
+      if (orderBy === "assigned_at") {
+        order = [[LeadAssignment, "assigned_at", dir]];
+      } else {
+        order = [[orderBy, dir]];
+      }
+    }
+
     const { count, rows: leads } = await Lead.findAndCountAll({
       where,
       include: [
@@ -264,6 +271,7 @@ const getLeads = async (req, res) => {
       ],
       distinct: true,
       col: "id",
+      subQuery: false,
       order,
       limit: pageLimit,
       offset,
@@ -296,7 +304,6 @@ const getLeadById = async (req, res) => {
         { model: User, as: "updater", attributes: ["id", "full_name", "email"] },
         {
           model: LeadAssignment,
-          as: "LeadAssignments",
           required: false,
           where: { id: { [Op.in]: LATEST_ASSIGNMENT_IDS } },
           include: [{ model: User, as: "assignee", attributes: ["id", "full_name", "email"] }],
